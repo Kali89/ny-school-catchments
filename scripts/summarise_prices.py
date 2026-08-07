@@ -69,11 +69,20 @@ def main() -> int:
         flat_rate = flats["floor_area_m2"].is_not_null().mean() if flats.height else 0.0
         header += (
             f"£/m² rests on an EPC floor-area match for **{rate:.1%}** of sales "
-            f"(flats {flat_rate:.1%} — several flats in one block often share a "
-            f"name with no distinguishing number, and an ambiguous address is left "
-            f"unmatched rather than guessed). Unmatched sales still count toward "
-            f"`Sales`, mean and median.\n\n"
+            f"(flats {flat_rate:.1%}). Unmatched sales still count toward `Sales`, "
+            f"mean and median.\n\n"
         )
+        if "match_tier" in transactions.columns:
+            loose = (transactions["match_tier"] == "name").sum()
+            n_matched = transactions["match_tier"].is_not_null().sum()
+            share = loose / n_matched if n_matched else 0.0
+            header += (
+                f"Addresses are matched through a cascade of keys, most specific "
+                f"first. **{share:.1%}** of matches come from the loosest key "
+                f"(postcode plus the first distinctive word of the address), which "
+                f"cannot always tell two named properties apart — common in rural "
+                f"North Yorkshire, where a house name is a complete address.\n\n"
+            )
     table_path.write_text(header + to_markdown(summary) + "\n")
     print(f"Wrote {table_path}")
 

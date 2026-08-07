@@ -84,24 +84,55 @@ a "what does a house cost here" figure downward.
 **Terminated postcodes are retained.** A house sold in 2021 may sit in a postcode
 since retired; filtering to "live today" would silently drop those sales.
 
-**The EPC join must not guess.** Two failures were found and fixed here, both
-caught by looking at the match rate rather than by an error:
+**The EPC join has to reach the same dwelling from two registers that describe
+it differently.** Price Paid splits the building ("130") from the dwelling
+within it ("FLAT 2") across two fields; an EPC assessor types one line, and for
+a flat that line usually names the *flat* — "Flat 2" with no building number at
+all. No single key spans that, so matching runs as a **cascade of five keys,
+most specific first**, each tried on what the previous ones left:
 
-- polars joins with `join_nulls=False` by default, so nulls never match — not
-  even null-to-null. Since most houses have no flat number, the precise key
-  silently dropped every *house* while still matching flats. The symptom was
-  diagnostic and inverted: flats matched at 45%, semis at 9%.
-- Filling those nulls with an empty-string sentinel then over-matched in the
-  other direction. `(postcode, "", "")` is not an identifier — 3,946 postcodes
-  had multiple certified addresses sharing it, up to 49 — so unnumbered named
-  properties were being handed an arbitrary neighbour's floor area. Named
-  properties now fall through to a name-token pass that only matches when the
-  name is unambiguous within the postcode.
+| Tier | Key | Share of matches |
+|---|---|---:|
+| building+flat | postcode + building + flat | 0.0% |
+| building | postcode + building | 79.1% |
+| flat+name | postcode + flat + name | 1.5% |
+| flat | postcode + flat | 3.5% |
+| name | postcode + first distinctive word | 15.9% |
 
-Net: 89% of sales carry a floor area (houses 94–96%, flats 45%). Flats are lower
-because several flats in one block genuinely share a name with no distinguishing
-number, and an ambiguous address is left unmatched rather than guessed. The
-regression tests in `tests/test_epc.py` pin both directions shut.
+Only rows whose key is *fully populated* are eligible for a tier — a property
+with no building number cannot enter the building tier. That is what stops an
+absent identifier behaving like a value and matching every other address that
+also lacks one.
+
+Getting here took three attempts, and none of the failures raised an error:
+
+1. **Nulls silently dropped every house.** polars joins with `join_nulls=False`,
+   so nulls never match — not even null-to-null. Most houses have no flat
+   number, so the key dropped houses while still matching flats. The symptom was
+   inverted and diagnostic: flats 45%, semis 9%.
+2. **An empty-string sentinel then over-matched.** `(postcode, "", "")` is not an
+   identifier — 3,946 postcodes had multiple certified addresses sharing it, up
+   to 49 — so unnumbered named properties took an arbitrary neighbour's floor
+   area, at a comfortable-looking 95%.
+3. **Refusing every ambiguous match biased against flats.** Requiring an
+   unambiguous key was safe but not neutral: it dropped flats at 55% while
+   keeping 95% of houses, because several flats in one block genuinely share a
+   name. That is a systematic bias, not a random one.
+
+The cascade resolves all three. **96% of sales carry a floor area — detached
+95.7%, semi 97.2%, terraced 96.1%, flats 93.8%** — all four within 3.5 points,
+where before the spread was 50.
+
+The remaining risk is honest rather than hidden: 15.9% of matches rest on the
+loosest key, which cannot always tell "Rose Cottage" from "Rosebank" in the same
+postcode. That share is reported in every output rather than assumed away, and
+`composition_check()` compares matched against unmatched sales each run, so a
+divergence between the population £/m² is computed on and the one behind the mean
+and median stays visible.
+
+Correcting the flat bias moved catchment £/m² by under 1% — flats are 11% of
+sales county-wide. It mattered most for **Graham School (Scarborough), 39.8%
+flats**, where the previous version was discarding over half of them.
 
 ## Two shapefile gotchas
 

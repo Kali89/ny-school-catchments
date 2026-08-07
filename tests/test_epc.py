@@ -146,8 +146,12 @@ class TestAmbiguousMatching:
         result = attach_floor_areas(transactions, floor_areas)
         assert result["floor_area_m2"][0] is None
 
-    def test_ambiguous_name_token_is_left_unmatched(self):
-        # "ROSE" cannot distinguish Rose Cottage from Rosebank.
+    def test_ambiguous_name_match_is_labelled_as_the_loosest_tier(self):
+        # "ROSE" cannot distinguish Rose Cottage from Rosebank, so this match is
+        # a genuine approximation. It is allowed, but must be recorded as coming
+        # from the loosest tier so the report can show how much rests on it —
+        # silently refusing would bias against named rural properties, and
+        # silently accepting would hide the looseness.
         transactions = self._t([("YO269RG", "ROSE COTTAGE", None, 400_000)])
         floor_areas = self._fa(
             [
@@ -156,7 +160,35 @@ class TestAmbiguousMatching:
             ]
         )
         result = attach_floor_areas(transactions, floor_areas)
-        assert result["floor_area_m2"][0] is None
+        assert result["match_tier"][0] == "name"
+        assert result["floor_area_m2"][0] == 170.0  # median of the candidates
+
+    def test_flat_matches_when_epc_has_no_building_number(self):
+        # The commonest EPC flat record is an address line reading simply
+        # "Flat 2", with no building number at all, while Price Paid carries the
+        # building in PAON. Without the flat tier this never matches — and the
+        # gap falls entirely on flats.
+        transactions = self._t([("YO269RG", "130", "FLAT 2", 200_000)])
+        floor_areas = self._fa([("YO269RG", None, "2", None, 55.0)])
+
+        result = attach_floor_areas(transactions, floor_areas)
+        assert result["floor_area_m2"][0] == 55.0
+        assert result["match_tier"][0] == "flat"
+
+    def test_row_count_is_preserved(self):
+        # An unmatched transaction is evidence about coverage, not a row to drop.
+        transactions = self._t(
+            [
+                ("YO269RG", "12", None, 300_000),
+                ("YO269RG", "99", None, 250_000),
+                ("YO519AA", "ROSE COTTAGE", None, 400_000),
+            ]
+        )
+        floor_areas = self._fa([("YO269RG", "12", None, "ELM", 90.0)])
+
+        result = attach_floor_areas(transactions, floor_areas)
+        assert result.height == 3
+        assert result["floor_area_m2"].is_not_null().sum() == 1
 
     def test_numbered_property_unaffected_by_the_restriction(self):
         transactions = self._t([("YO269RG", "12", None, 300_000)])

@@ -117,29 +117,6 @@ def _address_parts(frame: pl.DataFrame, primary: str, secondary: str | None) -> 
     )
 
 
-#: Columns used as join keys between the two registers.
-_JOIN_KEYS = ("building", "flat", "name_token")
-
-
-def _fill_join_keys(frame: pl.DataFrame) -> pl.DataFrame:
-    """Replace nulls in the address join keys with an empty-string sentinel.
-
-    polars joins with ``join_nulls=False`` by default, so a null on either side
-    never matches — not even null-to-null. Most houses have no flat number, so
-    left as nulls the precise key silently drops every house while continuing to
-    match flats. That inversion (flats matching better than houses) is the
-    symptom to watch for if this regresses.
-
-    Args:
-        frame: A frame carrying any of the address join key columns.
-
-    Returns:
-        The frame with those columns null-filled.
-    """
-    present = [c for c in _JOIN_KEYS if c in frame.columns]
-    return frame.with_columns([pl.col(c).fill_null("") for c in present])
-
-
 def extract_floor_areas(
     postcode_keys: pl.Series,
     zip_path: Path | str = EPC_ZIP,
@@ -223,69 +200,180 @@ def extract_floor_areas(
     )
 
 
+#: Join tiers, most specific first. Each is tried on whatever the previous tiers
+#: left unmatched, and the tier a match came from is recorded, so the report can
+#: show how much of the match rate rests on the loosest key.
+#:
+#: Adapted from the sibling asylum-site project, whose tiering this mirrors so
+#: the two remain comparable.
+MATCH_TIERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("building+flat", ("postcode_key", "building", "flat")),
+    ("building", ("postcode_key", "building")),
+    ("flat+name", ("postcode_key", "flat", "name_token")),
+    # Postcode plus flat number, with no building identifier on either side.
+    # This is the tier that reaches the commonest EPC flat record: an address
+    # line reading simply "Flat 2". Without it a flat whose PAON is a bare
+    # number can never match, which is most of them — and the resulting gap is
+    # not random, since it falls entirely on flats.
+    #
+    # The risk is two blocks sharing a postcode, where flat 2 of one could reach
+    # flat 2 of the other. Postcodes are small — typically around fifteen
+    # addresses — so this is uncommon, and it sits after the tiers that can
+    # disambiguate by name.
+    ("flat", ("postcode_key", "flat")),
+    ("name", ("postcode_key", "name_token")),
+)
+
+
 def attach_floor_areas(
     transactions: pl.DataFrame,
     floor_areas: pl.DataFrame,
 ) -> pl.DataFrame:
-    """Join floor areas onto transactions, in two passes.
+    """Join floor areas onto transactions through a cascade of keys.
 
-    Pass one matches on (postcode, building, flat), which is the precise key.
-    Pass two retries whatever is still unmatched on (postcode, name_token), which
-    catches named properties with no number in either register — common in rural
-    North Yorkshire, where "Rose Cottage" is a complete address.
+    A single key cannot work here. Price Paid separates the building ("130")
+    from the dwelling within it ("FLAT 2") across two fields, while EPC writes
+    one line — so "130"/"FLAT 2" has to be able to reach a certificate whose
+    address is simply "Flat 2", and "ROSE COTTAGE" has no number on either side.
+
+    Tiers run most specific first, each on what the previous ones left. Only
+    rows whose key is *fully populated* can match on a given tier: a property
+    with no building number is not eligible for the building tier at all. That
+    is what stops an absent identifier from behaving like a value and matching
+    every other address that also lacks one.
 
     Args:
-        transactions: Price Paid rows carrying postcode_key, paon and saon.
+        transactions: Price Paid rows carrying postcode_key, paon, saon, price.
         floor_areas: Output of `extract_floor_areas`.
 
     Returns:
-        The transactions with `floor_area_m2` (nullable) and `price_per_m2` added.
+        The transactions with `floor_area_m2`, `price_per_m2` and `match_tier`
+        added, all null where unmatched. Row count is preserved — an unmatched
+        transaction is evidence about coverage, not a row to drop.
+
+    Raises:
+        RuntimeError: If the cascade changes the row count, which would mean
+            transactions were silently lost rather than left unmatched.
     """
-    parsed = _fill_join_keys(_address_parts(transactions, "paon", "saon"))
-    floor_areas = _fill_join_keys(floor_areas)
+    left = _address_parts(transactions, "paon", "saon").with_row_index("_txn_id")
+    right = _certificate_parts(floor_areas)
 
-    # Pass one — the precise key. Restricted to addresses that carry a number,
-    # because (postcode, "", "") is not an identifier: in rural North Yorkshire a
-    # single postcode routinely holds many named properties with no number at
-    # all, and matching on the empty key hands a sale an arbitrary neighbour's
-    # floor area. Named properties are left for pass two instead.
-    numbered = floor_areas.filter(
-        (pl.col("building") != "") | (pl.col("flat") != "")
-    )
-    precise = numbered.select(
-        "postcode_key", "building", "flat", "floor_area_m2"
-    ).unique(subset=["postcode_key", "building", "flat"], keep="first")
+    remaining = left
+    matched_parts: list[pl.DataFrame] = []
 
-    matched = parsed.with_columns(
-        pl.when((pl.col("building") != "") | (pl.col("flat") != ""))
-        .then(pl.col("building"))
-        .otherwise(None)
-        .alias("_precise_building")
-    ).join(
-        precise.rename({"building": "_precise_building"}),
-        on=["postcode_key", "_precise_building", "flat"],
-        how="left",
-    ).drop("_precise_building")
+    for tier_name, keys in MATCH_TIERS:
+        if remaining.height == 0:
+            break
 
-    # Pass two — the named-property key, for rows the precise key could not
-    # reach. Only unambiguous names are used: if two certified addresses in a
-    # postcode share a leading token ("ROSE" from both Rose Cottage and
-    # Rosebank), there is no way to tell which sold, so the sale is left
-    # unmatched rather than given a coin-flip floor area.
-    by_name = (
-        floor_areas.filter(pl.col("name_token") != "")
-        .group_by(["postcode_key", "name_token"])
-        .agg(
-            pl.col("floor_area_m2").median().alias("floor_area_by_name"),
-            pl.len().alias("_n_candidates"),
+        populated = pl.all_horizontal([pl.col(k).is_not_null() for k in keys])
+        usable = remaining.filter(populated)
+        skipped = remaining.filter(~populated)
+        if usable.height == 0:
+            remaining = skipped
+            continue
+
+        # Collapse the certificate side to one floor area per key. Several
+        # certificates can share a key — re-lodgements of the same dwelling, or
+        # (on the looser tiers) different dwellings in one building — and the
+        # median is stable against both.
+        candidates = (
+            right.filter(pl.all_horizontal([pl.col(k).is_not_null() for k in keys]))
+            .group_by(list(keys))
+            .agg(pl.col("floor_area_m2").median().alias("_tier_area"))
         )
-        .filter(pl.col("_n_candidates") == 1)
-        .drop("_n_candidates")
-    )
-    matched = matched.join(by_name, on=["postcode_key", "name_token"], how="left")
 
-    return matched.with_columns(
-        pl.coalesce("floor_area_m2", "floor_area_by_name").alias("floor_area_m2")
-    ).drop("floor_area_by_name").with_columns(
-        (pl.col("price") / pl.col("floor_area_m2")).alias("price_per_m2")
+        joined = usable.join(candidates, on=list(keys), how="left")
+        hit = joined.filter(pl.col("_tier_area").is_not_null())
+
+        if hit.height:
+            matched_parts.append(
+                hit.with_columns(
+                    pl.col("_tier_area").alias("floor_area_m2"),
+                    pl.lit(tier_name).alias("match_tier"),
+                ).drop("_tier_area")
+            )
+
+        missed = joined.filter(pl.col("_tier_area").is_null()).drop("_tier_area")
+        remaining = pl.concat([missed, skipped], how="diagonal")
+
+    unmatched = remaining.with_columns(
+        pl.lit(None, dtype=pl.Float64).alias("floor_area_m2"),
+        pl.lit(None, dtype=pl.Utf8).alias("match_tier"),
+    )
+    result = (
+        pl.concat([*matched_parts, unmatched], how="diagonal")
+        if matched_parts
+        else unmatched
+    )
+
+    if result.height != transactions.height:
+        raise RuntimeError(
+            f"Tiered matching changed the row count: {transactions.height:,} in, "
+            f"{result.height:,} out. A left join must preserve rows — an unmatched "
+            "transaction is evidence about coverage, not a row to drop."
+        )
+
+    return (
+        result.sort("_txn_id")
+        .drop("_txn_id")
+        .with_columns((pl.col("price") / pl.col("floor_area_m2")).alias("price_per_m2"))
+    )
+
+
+def _certificate_parts(floor_areas: pl.DataFrame) -> pl.DataFrame:
+    """Present the certificate side with parsed address parts.
+
+    `extract_floor_areas` already parses and groups by address, so its output is
+    used as-is. A frame still carrying a raw `address1` is parsed here, which is
+    what the tests and any ad-hoc use supply.
+
+    Args:
+        floor_areas: Either the grouped extract or raw certificate rows.
+
+    Returns:
+        A frame carrying postcode_key, building, flat, name_token, floor_area_m2.
+
+    Raises:
+        KeyError: If neither the parsed parts nor an address line is present.
+    """
+    parsed_columns = {"building", "flat", "name_token"}
+    if parsed_columns.issubset(floor_areas.columns):
+        return floor_areas.select(
+            "postcode_key", "building", "flat", "name_token", "floor_area_m2"
+        )
+    if "address1" in floor_areas.columns:
+        return _address_parts(floor_areas, "address1", None).select(
+            "postcode_key", "building", "flat", "name_token", "floor_area_m2"
+        )
+    raise KeyError(
+        "floor_areas must carry either building/flat/name_token or address1; "
+        f"found {list(floor_areas.columns)}"
+    )
+
+
+def composition_check(matched: pl.DataFrame) -> pl.DataFrame:
+    """Compare matched against unmatched transactions.
+
+    A match rate says nothing on its own. If matched sales differ systematically
+    from unmatched ones, £/m² is computed on a different population than the
+    mean and median are, and the difference between them stops being comparable.
+
+    Args:
+        matched: Output of `attach_floor_areas`.
+
+    Returns:
+        One row per group with counts, median price and the share of flats.
+    """
+    return (
+        matched.with_columns(
+            pl.col("floor_area_m2").is_not_null().alias("has_floor_area")
+        )
+        .group_by("has_floor_area")
+        .agg(
+            pl.len().alias("transactions"),
+            pl.col("price").median().round(0).alias("median_price"),
+            (pl.col("property_type") == "F").mean().alias("share_flats"),
+            (pl.col("property_type") == "D").mean().alias("share_detached"),
+        )
+        .sort("has_floor_area")
     )

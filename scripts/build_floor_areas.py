@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import polars as pl
 
 from ny_catchments.config import DATA_INTERIM, LAYERS
-from ny_catchments.epc import attach_floor_areas, extract_floor_areas
+from ny_catchments.epc import attach_floor_areas, composition_check, extract_floor_areas
 
 
 def main() -> int:
@@ -78,6 +78,21 @@ def main() -> int:
         .sort("property_type")
     )
     print(f"\nMatch rate by property type:\n{by_type}")
+
+    # Where the matches came from. A rate resting mostly on the loosest key is
+    # worth considerably less than the same rate resting on building+flat.
+    tiers = (
+        enriched.filter(pl.col("match_tier").is_not_null())
+        .group_by("match_tier")
+        .agg(pl.len().alias("n"))
+        .sort("n", descending=True)
+    )
+    print(f"\nMatches by tier:\n{tiers}")
+
+    # Is the matched sample representative? If matched sales differ from
+    # unmatched ones, £/m² is computed on a different population than the mean
+    # and median are.
+    print(f"\nComposition, matched vs unmatched:\n{composition_check(enriched)}")
 
     out = DATA_INTERIM / f"transactions_{spec.key}_with_epc.parquet"
     enriched.write_parquet(out)
