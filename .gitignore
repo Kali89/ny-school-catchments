@@ -1,0 +1,26 @@
+# Source data is NOT committed — see data/README.md for provenance and licensing.
+# The North Yorkshire catchment shapefiles were obtained via an FOI/EIR request
+# and their onward-publication licence has not been confirmed. Do not commit them
+# to this public repository without checking with NYC first.
+data/raw/*
+!data/raw/.gitkeep
+
+# Rendered figures are also held back: they are derived from the catchment
+# boundaries, so publishing one publishes the boundaries. Revisit once the
+# licence question in data/README.md is settled.
+outputs/*.png
+!outputs/.gitkeep
+
+data/interim/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# macOS
+.DS_Store
