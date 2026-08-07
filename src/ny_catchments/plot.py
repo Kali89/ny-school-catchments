@@ -29,6 +29,7 @@ from .config import (
     LayerSpec,
 )
 from .io import NAME_FIELD
+from .summarise import MIN_TRANSACTIONS
 
 # --- Palette (validated defaults; see references/palette.md) ---
 SURFACE = "#fcfcfb"
@@ -243,3 +244,115 @@ def _wrap_name(name: str, width: int = 22) -> str:
         lines = lines[:3]
         lines[-1] += "…"
     return "\n".join(lines)
+
+
+# Sequential blue ramp, light -> dark, for magnitude encoding. Steps 100-700 of
+# the reference palette. Sequential is one hue by rule: a rainbow ramp invents
+# category boundaries where the data has none.
+SEQUENTIAL_BLUE = [
+    "#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef",
+    "#6da7ec", "#5598e7", "#3987e5", "#2a78d6",
+    "#256abf", "#1c5cab", "#184f95", "#104281", "#0d366b",
+]
+
+# Catchments with too few sales to report get hatching rather than a colour, so
+# "no data" can never be misread as "low price".
+NO_DATA_FILL = "#f0efec"
+
+
+def plot_choropleth(
+    catchments: gpd.GeoDataFrame,
+    values: dict[str, float | None],
+    title: str,
+    subtitle: str,
+    value_label: str,
+    fmt=lambda v: f"£{v:,.0f}",
+    stand_in_note: str | None = None,
+):
+    """Fill each catchment by a value, on a single-hue sequential ramp.
+
+    Args:
+        catchments: Catchment polygons in EPSG:27700.
+        values: Catchment name -> value. Missing or None means "not reported".
+        title: Figure title.
+        subtitle: Line under the title.
+        value_label: Legend heading, including units.
+        fmt: Formatter for legend tick labels.
+        stand_in_note: Caveat line shown above the subtitle.
+
+    Returns:
+        The matplotlib Figure.
+    """
+    from matplotlib.colors import BoundaryNorm, ListedColormap
+
+    frame = catchments.copy()
+    frame["value"] = [values.get(str(n).strip()) for n in frame[NAME_FIELD]]
+
+    reported = frame[frame["value"].notna()]
+    if reported.empty:
+        raise ValueError("No catchment has a reportable value — nothing to plot.")
+
+    # Quantile breaks: house prices are right skewed, so equal-width bins would
+    # put almost every catchment in the bottom class and waste the ramp.
+    quantiles = reported["value"].quantile([0, 0.2, 0.4, 0.6, 0.8, 1.0]).to_list()
+    edges = sorted({round(q) for q in quantiles})
+    n_classes = max(len(edges) - 1, 1)
+    step = max(len(SEQUENTIAL_BLUE) // max(n_classes, 1), 1)
+    colours = [SEQUENTIAL_BLUE[min(i * step + 2, len(SEQUENTIAL_BLUE) - 1)]
+               for i in range(n_classes)]
+    cmap = ListedColormap(colours)
+    norm = BoundaryNorm(edges, ncolors=n_classes, clip=True)
+
+    # The county is roughly 153km x 105km, so a portrait canvas would leave a
+    # third of the figure empty above and below the geography.
+    fig, ax = plt.subplots(figsize=(12, 9.5), dpi=200)
+
+    missing = frame[frame["value"].isna()]
+    if not missing.empty:
+        missing.plot(ax=ax, facecolor=NO_DATA_FILL, edgecolor=SURFACE, linewidth=1.2,
+                     hatch="///", zorder=1)
+    reported.plot(ax=ax, column="value", cmap=cmap, norm=norm,
+                  edgecolor=SURFACE, linewidth=1.2, zorder=2)
+    frame.boundary.plot(ax=ax, color=INK_MUTED, linewidth=0.4, alpha=0.6, zorder=3)
+
+    # Mark the focal school for orientation.
+    ax.scatter([FOCUS_EASTING], [FOCUS_NORTHING], s=70, color=INK_PRIMARY,
+               edgecolor=SURFACE, linewidth=2, zorder=6)
+    ax.annotate("Great Ouseburn", xy=(FOCUS_EASTING, FOCUS_NORTHING),
+                xytext=(0, -14), textcoords="offset points", ha="center", va="top",
+                fontsize=8.5, fontweight="bold", color=INK_PRIMARY, zorder=7)
+
+    ax.set_aspect("equal")
+    ax.set_axis_off()
+
+    # Discrete legend: one swatch per class, plus the no-data class.
+    handles = [
+        Patch(facecolor=colours[i], edgecolor=SURFACE,
+              label=f"{fmt(edges[i])} – {fmt(edges[i + 1])}")
+        for i in range(n_classes)
+    ]
+    if not missing.empty:
+        handles.append(
+            Patch(facecolor=NO_DATA_FILL, edgecolor=INK_MUTED, hatch="///",
+                  label=f"Fewer than {MIN_TRANSACTIONS} sales — not reported")
+        )
+    legend = ax.legend(handles=handles, loc="upper left", frameon=True,
+                       facecolor=SURFACE, edgecolor=HAIRLINE, framealpha=1.0,
+                       fontsize=8.5, labelcolor=INK_SECONDARY,
+                       title=value_label, borderpad=0.8)
+    legend.get_title().set_fontsize(9)
+    legend.get_title().set_color(INK_PRIMARY)
+    legend.set_zorder(10)
+
+    fig.suptitle(title, x=0.06, y=0.96, ha="left", fontsize=17,
+                 fontweight="bold", color=INK_PRIMARY)
+    text = f"{stand_in_note}\n{subtitle}" if stand_in_note else subtitle
+    fig.text(0.06, 0.932, text, ha="left", va="top", fontsize=9.5, color=INK_SECONDARY)
+    fig.text(0.06, 0.04,
+             "Prices: HM Land Registry Price Paid (category A only), Open Government Licence. "
+             "Floor areas: EPC domestic register.\n"
+             "Boundaries: North Yorkshire Council (FOI/EIR release).",
+             ha="left", fontsize=7.5, color=INK_MUTED)
+
+    fig.subplots_adjust(top=0.89, bottom=0.08, left=0.06, right=0.94)
+    return fig

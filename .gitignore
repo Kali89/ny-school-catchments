@@ -9,6 +9,7 @@ data/raw/*
 # boundaries, so publishing one publishes the boundaries. Revisit once the
 # licence question in data/README.md is settled.
 outputs/*.png
+outputs/*.md
 !outputs/.gitkeep
 
 data/interim/

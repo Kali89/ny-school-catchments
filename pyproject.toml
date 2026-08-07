@@ -10,6 +10,9 @@ dependencies = [
     "pyogrio>=0.9",
     "shapely>=2.0",
     "pandas>=2.0",
+    "pyarrow>=25.0.0",
+    "duckdb>=1.5.5",
+    "polars>=1.43.2",
 ]
 
 [project.optional-dependencies]
@@ -24,3 +27,7 @@ packages = ["src/ny_catchments"]
 
 [tool.ruff]
 line-length = 100
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

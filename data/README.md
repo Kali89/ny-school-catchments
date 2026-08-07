@@ -34,16 +34,37 @@ CRS explicitly from the sidecars' documented contents:
 - Secondary: `British_National_Grid` → EPSG:27700
 - Primary: `MapInfo Generic Lat/Long` on a WGS84 spheroid → EPSG:4326
 
-## House prices — HM Land Registry Price Paid
+## National reference data — read-only mirror
 
-Not yet wired in. The full Price Paid dataset (`pp-complete.csv`, ~5.1GB) is
-already downloaded at:
+Price Paid, ONSPD and the EPC register are all large public downloads already
+held by the sibling asylum-site study. This project reads them **in place and
+read-only**; nothing here writes to that directory.
 
-    ../asylum-site-local-impacts/data/raw/land_registry/pp-complete.csv
+    /Users/matt/src/asylum-site-local-impacts/data/raw/
+      land_registry/pp-complete.csv     ~5.1GB   HM Land Registry Price Paid (OGL)
+      onspd/ONSPD_MAY_2026.zip          ~247MB   ONS Postcode Directory (OGL)
+      epc/domestic-csv.zip              ~6.5GB   EPC domestic register
 
-Price Paid is published under the Open Government Licence and contains a
-postcode per transaction, so joining to catchments will go via ONSPD postcode
-centroids (also present in that project).
+Override the location with `NY_CATCHMENTS_MIRROR` if it moves. If you are setting
+this up fresh, all three are public downloads and none needs the sibling project.
+
+Note the EPC archive begins in **2012**. A dwelling last certified before then —
+or never certified, since a certificate is only required on sale or let — has no
+floor area and drops out of the £/m² figures.
+
+## Generated files
+
+`data/interim/` (gitignored) holds:
+
+| File | Contents |
+|---|---|
+| `transactions_<layer>.parquet` | Located sales, one row per transaction |
+| `epc_floor_areas.parquet` | Cached EPC extract, so re-matching skips the archive scan |
+| `transactions_<layer>_with_epc.parquet` | The above plus floor area and £/m² |
+
+**These are address-level extracts and must not be published.** Only aggregates
+may leave the repo — and even those are currently held back pending the licence
+question above, so `outputs/` is gitignored too.
 
 ## School locations — DfE Get Information About Schools
 

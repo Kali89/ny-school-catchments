@@ -9,6 +9,7 @@ message rather than a GDAL error thirty frames deep.
 from __future__ import annotations
 
 import geopandas as gpd
+import polars as pl
 
 from .config import BNG, LayerSpec
 
@@ -124,3 +125,60 @@ def load_catchments(spec: LayerSpec) -> gpd.GeoDataFrame:
         gdf.loc[invalid, "geometry"] = gdf.loc[invalid, "geometry"].buffer(0)
 
     return gdf
+
+
+def assign_catchments(
+    transactions: pl.DataFrame,
+    catchments: gpd.GeoDataFrame,
+) -> pl.DataFrame:
+    """Attach the containing catchment to each transaction by point-in-polygon.
+
+    Args:
+        transactions: Must carry `easting` and `northing` columns in EPSG:27700.
+        catchments: Catchment polygons in EPSG:27700, carrying NAME_FIELD.
+
+    Returns:
+        The transactions with `catchment_name` and `catchment_id` added. Rows
+        falling outside every catchment are dropped — a postcode inside the
+        bounding box is not necessarily inside a catchment.
+
+    Raises:
+        ValueError: If the catchment layer is not in EPSG:27700, since a join in
+            degrees would silently produce nonsense.
+    """
+    if catchments.crs is None or catchments.crs.to_epsg() != 27700:
+        raise ValueError(
+            f"Catchments must be in EPSG:27700 for the spatial join, got {catchments.crs}"
+        )
+
+    points = gpd.GeoDataFrame(
+        {"_row": range(transactions.height)},
+        geometry=gpd.points_from_xy(
+            transactions["easting"].to_list(),
+            transactions["northing"].to_list(),
+        ),
+        crs=BNG,
+    )
+
+    polygons = catchments[[NAME_FIELD, "geometry"]].copy()
+    polygons["catchment_id"] = polygons.index
+
+    joined = gpd.sjoin(points, polygons, how="inner", predicate="within")
+
+    # A point on a shared boundary can match two catchments. Keep the first
+    # deterministically rather than double-counting the sale.
+    joined = joined.sort_values(["_row", "catchment_id"]).drop_duplicates("_row")
+
+    lookup = pl.DataFrame(
+        {
+            "_row": joined["_row"].to_numpy(),
+            "catchment_name": joined[NAME_FIELD].astype(str).to_numpy(),
+            "catchment_id": joined["catchment_id"].to_numpy(),
+        }
+    )
+
+    return (
+        transactions.with_row_index("_row")
+        .join(lookup, on="_row", how="inner")
+        .drop("_row")
+    )

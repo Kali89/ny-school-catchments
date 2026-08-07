@@ -28,14 +28,82 @@ reconstructed from the name table and the index alone.
 
 ```bash
 uv sync
-make map              # primary — fails with a clear message until the .shp arrives
-make map-secondary    # the stand-in shown above
+make all              # the full pipeline
+```
+
+Or stage by stage:
+
+```bash
+make map-secondary    # catchment boundaries around Great Ouseburn
+make transactions     # locate Price Paid sales, assign each to a catchment
+make floor-areas      # attach EPC floor areas (slow: scans the EPC archive)
+make prices           # per-catchment table and choropleths
 ```
 
 Source data is not committed — see [`data/README.md`](data/README.md) for what to
 put in `data/raw/` and where it came from.
 
-## Two gotchas worth knowing about
+## What it measures
+
+Three figures per catchment, deliberately reported together:
+
+| Measure | Why it's there |
+|---|---|
+| **Mean** price | What most people mean by "average". |
+| **Median** price | The headline. Price distributions are strongly right skewed — a handful of country houses drags the mean above anything a buyer would meet. |
+| **Median price per m²** | The comparable figure. |
+
+The third matters more than it looks. A raw average mostly tracks *what kind of
+housing a catchment contains*, not how sought-after it is. Fulford (York) is 8th
+on median price but 2nd on £/m², because its median home is 91m² against
+Boroughbridge's 117m². Ranking catchments on raw price largely ranks them on
+floor area.
+
+Transaction counts sit beside every figure, and catchments with fewer than 30
+sales are not reported at all — a median over a handful of rural sales says more
+about which houses happened to change hands than about the area.
+
+## Data traps handled explicitly
+
+Each of these fails *silently* — producing plausible output that is wrong — so
+each is handled in code rather than left to a default. Three were inherited from
+the sibling asylum-site study, which hit them first.
+
+**ONSPD holds two coordinate systems in the same unlabelled columns.** Northern
+Ireland eastings/northings are Irish Grid, not British National Grid. Read as BNG
+they land ~250km away *together*, forming a plausible cluster rather than visible
+outliers. Filtered by country code.
+
+**The null-island sentinel.** Postcodes with no grid reference carry
+`lat = 99.999999`, `long = 0.0`, `gridind = 9`. Dropped on load.
+
+**Price Paid category B is excluded.** Category B covers repossessions, portfolio
+transfers and other sales that are not open-market prices. Including them biases
+a "what does a house cost here" figure downward.
+
+**Terminated postcodes are retained.** A house sold in 2021 may sit in a postcode
+since retired; filtering to "live today" would silently drop those sales.
+
+**The EPC join must not guess.** Two failures were found and fixed here, both
+caught by looking at the match rate rather than by an error:
+
+- polars joins with `join_nulls=False` by default, so nulls never match — not
+  even null-to-null. Since most houses have no flat number, the precise key
+  silently dropped every *house* while still matching flats. The symptom was
+  diagnostic and inverted: flats matched at 45%, semis at 9%.
+- Filling those nulls with an empty-string sentinel then over-matched in the
+  other direction. `(postcode, "", "")` is not an identifier — 3,946 postcodes
+  had multiple certified addresses sharing it, up to 49 — so unnumbered named
+  properties were being handed an arbitrary neighbour's floor area. Named
+  properties now fall through to a name-token pass that only matches when the
+  name is unambiguous within the postcode.
+
+Net: 89% of sales carry a floor area (houses 94–96%, flats 45%). Flats are lower
+because several flats in one block genuinely share a name with no distinguishing
+number, and an ambiguous address is left unmatched rather than guessed. The
+regression tests in `tests/test_epc.py` pin both directions shut.
+
+## Two shapefile gotchas
 
 **The projection sidecars are named `.prj.txt`, not `.prj`.** GDAL ignores them,
 so both layers load with *no CRS at all* and would silently plot in the wrong
@@ -60,15 +128,45 @@ scripts/make_map.py
 ## Where this is going
 
 1. ~~Catchment boundaries~~ — done, pending the primary `.shp`.
-2. Join HM Land Registry Price Paid transactions to catchments via ONSPD postcode
-   centroids.
-3. Aggregate to mean/median price per catchment, probably with a recency window
-   and some control for property type and floor area.
+2. ~~Join Price Paid to catchments via ONSPD postcode centroids~~ — done.
+3. ~~Mean/median price and price per m² per catchment~~ — done.
+4. **An inequality index per catchment** — not started. See below.
 
-Design of the map follows a single-hue approach on purpose: identity and location
-are the job here, so context polygons stay recessive neutral and one hue marks the
-focal catchment. That leaves the colour budget free for a sequential ramp when
-prices arrive.
+### On the inequality index
+
+Not yet implemented, and worth a decision rather than a default. The measures
+differ in what they'd actually say about a catchment:
+
+- **Gini / IQR-to-median ratio** on sale prices — spread of what changes hands.
+  Cheapest to compute, but in a thin rural market it mostly measures the mix of
+  stock that happened to sell in the window.
+- **P90/P10 ratio** — more robust than Gini at these sample sizes, and easier to
+  explain ("the top decile costs N× the bottom").
+- **£/m² dispersion rather than price dispersion** — separates "this area has a
+  mix of big and small homes" from "this area has genuinely cheap and expensive
+  land". Probably the more meaningful of the two, and only possible because the
+  EPC join is already built.
+- **A deprivation-based index** — ONSPD already carries the IMD 2020 decile per
+  postcode, so a population-weighted spread of deprivation within a catchment is
+  available essentially for free, and measures something quite different from
+  price: who lives there, not what property costs.
+
+These answer different questions and the right choice depends on what the index
+is *for*. Worth settling before building.
+
+Note that sample size bites harder here than for a median — a Gini over 30 sales
+is very noisy — so the suppression threshold likely needs to be higher for this
+measure than the 30 used elsewhere.
+
+## Figure design
+
+Boundary maps and choropleths use different colour strategies on purpose. The
+boundary map's job is identity and location, so context polygons stay recessive
+neutral and a single hue marks the focal catchment. The choropleths encode
+magnitude, so they use one sequential hue light→dark with quantile class breaks —
+equal-width bins would put almost every catchment in the bottom class, given the
+skew. Catchments below the reporting threshold are hatched, never coloured, so
+"no data" can't be misread as "cheap".
 
 ## Licence
 
