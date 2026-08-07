@@ -8,8 +8,9 @@ data/raw/*
 # Rendered figures are also held back: they are derived from the catchment
 # boundaries, so publishing one publishes the boundaries. Revisit once the
 # licence question in data/README.md is settled.
-outputs/*.png
-outputs/*.md
+# Everything generated, plus anything else that lands here — an extension-based
+# rule let a stray .Rhistory get staged once.
+outputs/*
 !outputs/.gitkeep
 
 data/interim/

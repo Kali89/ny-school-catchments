@@ -197,6 +197,59 @@ figure so a ranking can be read against the data behind it.
 Periods cover whole calendar years; part-year 2026 is excluded so one window
 isn't half-weighted against the others.
 
+## Inequality, and where rich and poor sit side by side
+
+`make inequality` produces three figures and a table. Two distinct questions are
+kept apart, because conflating them would answer neither:
+
+**How unequal is a catchment?** P90/P10 on price per m² — the top tenth of homes
+cost this many times more per square metre than the bottom tenth. Gini is
+reported alongside, but P90/P10 leads because it survives these sample sizes
+better and states itself in a sentence.
+
+**Is that inequality geographic?** A catchment can be unequal because expensive
+and cheap homes are mixed street by street, or because it holds one wealthy
+village and one deprived estate. Only the second is "rich and poor next to each
+other". A variance decomposition on log £/m² splits the spread into between- and
+within-neighbourhood parts, using LSOAs (~650 households) as the neighbourhood.
+
+### What it shows
+
+**Most inequality is not geographic.** The median catchment has only **10.7%** of
+its price variation between neighbourhoods; even the most divided —
+Tadcaster Grammar — reaches just 35%. Rich and poor homes are mixed at fine grain
+almost everywhere in the county.
+
+**Inequality barely tracks price.** Spearman between median £/m² and P90/P10 is
+**−0.166**. The most unequal catchments are Filey (2.45×) and Graham,
+Scarborough (2.42×) — one mid-priced, one the cheapest in the county.
+
+**Sharp divides are real but local.** The steepest adjacent contrasts:
+
+| Catchment | Richer | Poorer | Gap | Apart |
+|---|---:|---:|---:|---:|
+| Graham School | £2,182 | £1,284 | 1.70× | 372 m |
+| Selby High & Brayton Academy Town area | £2,870 | £1,692 | 1.70× | 295 m |
+| Skipton Girls' High & Ermysted's | £3,802 | £2,295 | 1.66× | 455 m |
+| Rossett & Harrogate Grammar Town area | £4,510 | £2,732 | 1.65× | 219 m |
+
+**Price and deprivation are not the same axis.** Spearman between a
+neighbourhood's £/m² and its IMD 2020 rank is **+0.53** — related, but well
+short of interchangeable. The report flags divides where they disagree: at Graham School
+the *pricier* side of the sharpest divide is the *more* deprived one.
+
+### Adjacency without boundaries
+
+Two neighbourhoods count as adjacent when they contain postcodes within 500m of
+each other, not when their polygons touch. This is deliberate, and it is not a
+workaround for lacking LSOA boundaries: two rural LSOAs can share a long
+boundary across open moorland while the places people actually live are
+kilometres apart. Polygon contiguity would call that "next to each other". Sales
+locations measure where people are close.
+
+LSOAs are assigned to the catchment holding most of their sales. Only 58 of 419
+span more than one, and just 32 fall below 80% purity.
+
 ## Where this is going
 
 1. ~~Catchment boundaries~~ — done, pending the primary `.shp`.

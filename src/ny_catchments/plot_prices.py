@@ -385,13 +385,25 @@ def _shorten(name: str, limit: int = 30) -> str:
 
 
 def _frame(fig, title: str, subtitle: str, stand_in_note: str | None) -> None:
-    """Apply the shared title block and source note."""
-    fig.suptitle(title, x=0.01, y=0.995, ha="left", fontsize=16,
-                 fontweight="bold", color=INK_PRIMARY)
+    """Apply the shared title block and source note.
+
+    Offsets are computed in inches and converted to figure fractions. A fixed
+    fraction works on a tall figure and collides on a short one, because the same
+    fraction is a different number of inches — which is exactly how the title and
+    subtitle ended up overprinting each other.
+    """
+    height = fig.get_figheight()
     text = f"{stand_in_note}\n{subtitle}" if stand_in_note else subtitle
-    if text.strip():
-        fig.text(0.01, 0.973, text, ha="left", va="top", fontsize=9,
+    n_lines = len(text.splitlines()) if text.strip() else 0
+
+    title_y = 1 - 0.30 / height
+    subtitle_y = 1 - 0.58 / height
+    fig.suptitle(title, x=0.01, y=title_y, ha="left", fontsize=16,
+                 fontweight="bold", color=INK_PRIMARY)
+    if n_lines:
+        fig.text(0.01, subtitle_y, text, ha="left", va="top", fontsize=9,
                  color=INK_SECONDARY)
+    top = 1 - (0.62 + 0.20 * n_lines) / height
     fig.text(
         0.01,
         0.002,
@@ -402,4 +414,4 @@ def _frame(fig, title: str, subtitle: str, stand_in_note: str | None) -> None:
         fontsize=7,
         color=INK_MUTED,
     )
-    fig.tight_layout(rect=(0, 0.012, 1, 0.955))
+    fig.tight_layout(rect=(0, 0.30 / height, 1, top))
