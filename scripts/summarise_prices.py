@@ -32,6 +32,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--layer", choices=sorted(LAYERS), default="secondary")
     parser.add_argument("--years", type=int, default=DEFAULT_YEARS)
+    parser.add_argument("--reference-year", type=int, default=2026)
     args = parser.parse_args()
 
     spec = LAYERS[args.layer]
@@ -46,9 +47,27 @@ def main() -> int:
         )
         return 1
 
-    transactions = pl.read_parquet(source)
+    everything = pl.read_parquet(source)
+
+    # The stored table spans whatever window build_transactions was last run
+    # with, which is not necessarily this one. Filter to the window actually
+    # being reported rather than trusting the file — otherwise the heading says
+    # five years while the numbers cover twenty.
+    since = args.reference_year - args.years
+    transactions = everything.filter(pl.col("transfer_date").dt.year() >= since)
+    if transactions.height == 0:
+        print(
+            f"No transactions on or after {since}. The stored table covers "
+            f"{everything['transfer_date'].min()} to {everything['transfer_date'].max()}.",
+            file=sys.stderr,
+        )
+        return 1
+
     has_ppm2 = "price_per_m2" in transactions.columns
-    print(f"Reading {source.name} ({transactions.height:,} sales, £/m²: {has_ppm2})")
+    print(
+        f"Reading {source.name}: {transactions.height:,} of {everything.height:,} sales "
+        f"fall in the last {args.years} years (£/m²: {has_ppm2})"
+    )
 
     summary = catchment_summary(transactions)
     catchments = load_catchments(spec)

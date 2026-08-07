@@ -51,12 +51,30 @@ def main() -> int:
 
     # The archive scan dominates the runtime, and the address matching downstream
     # is the part worth iterating on, so the extract is cached.
+    #
+    # The cache is only valid for the postcodes it was built from. Widening the
+    # date window pulls in postcodes that were not requested last time, and those
+    # would come back unmatched with no error at all — the match rate would just
+    # quietly sag. So coverage is checked, not assumed.
     cache = DATA_INTERIM / "epc_floor_areas.parquet"
+    stale = False
     if cache.exists() and not args.refresh_epc:
         floor_areas = pl.read_parquet(cache)
-        print(f"[2/3] Reusing cached EPC extract ({cache.name}) — --refresh-epc to rescan")
-    else:
-        print("[2/3] Scanning the EPC archive (slow — decompressing every yearly file)…")
+        cached_postcodes = set(floor_areas["postcode_key"].unique().to_list())
+        missing = set(postcodes.to_list()) - cached_postcodes
+        # Postcodes with no certificate at all are legitimately absent, so a
+        # small shortfall is expected. A large one means the window moved.
+        if len(missing) > 0.05 * postcodes.len():
+            stale = True
+            print(
+                f"[2/3] Cached extract covers {len(cached_postcodes):,} postcodes but "
+                f"{len(missing):,} of {postcodes.len():,} requested are absent — rescanning."
+            )
+        else:
+            print(f"[2/3] Reusing cached EPC extract ({cache.name}) — --refresh-epc to rescan")
+
+    if not cache.exists() or args.refresh_epc or stale:
+        print("      Scanning the EPC archive (slow — decompressing every yearly file)…")
         floor_areas = extract_floor_areas(postcodes)
         floor_areas.write_parquet(cache)
     print(f"      {floor_areas.height:,} distinct certified addresses")

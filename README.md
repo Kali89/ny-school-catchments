@@ -156,6 +156,47 @@ src/ny_catchments/
 scripts/make_map.py
 ```
 
+## Distribution and change over time
+
+`make periods` produces four outputs from a 20-year extract:
+
+| Output | What it answers |
+|---|---|
+| `price_per_m2_distribution_*.png` | Ranked box plot — how bunched are catchments, and where does mine sit |
+| `price_per_m2_rank_shift_*.png` | Slope chart of rank across three periods |
+| `price_per_m2_excess_*.png` | Diverging bars — who moved outsized |
+| `period_comparison_*.md` | The numbers behind all three |
+
+**The main finding is how alike catchments are.** Across 38 reportable
+catchments the middle half sit between £2,713 and £3,277/m² — a 20% spread
+around the typical £2,885. But the *typical catchment's own* interquartile range
+is 32% of its median. **The variation between houses inside a catchment is
+larger than the variation between catchments.** Picking a catchment moves the
+expected price per m² far less than picking a house within one does.
+
+The extremes are real but few: Fulford (York) at £3,795 and Graham School
+(Scarborough) at £1,746, a 2.2× range end to end.
+
+Three things this analysis is careful about:
+
+**Nominal, so comparisons are relative.** £/m² rose ~42% county-wide over twenty
+years. An absolute rise means nothing on its own, so period comparisons report
+each catchment's change *net of the county-wide change*. That is what "outsized"
+has to mean.
+
+**EPC coverage collapses in the early period** — 68.5% for 2006–2015 against
+96.0% for 2021–2025, because the register starts in 2012. A pre-2012 sale has a
+floor area only if the property was certified later, which happens when it is
+marketed again. Early coverage is therefore a function of subsequent market
+activity, not a random sample. Reported per period in every output.
+
+**Thin catchments dominate the extremes.** The largest mover, Malton & Huntington
+at +18.4pp, rests on 98 recent priced sales. Sale counts sit on the distribution
+figure so a ranking can be read against the data behind it.
+
+Periods cover whole calendar years; part-year 2026 is excluded so one window
+isn't half-weighted against the others.
+
 ## Where this is going
 
 1. ~~Catchment boundaries~~ — done, pending the primary `.shp`.
