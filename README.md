@@ -397,6 +397,27 @@ happens to produce a mixed intake — would not. That is a reading of the Code's
 intent rather than a citation of a specific paragraph, and worth checking with
 someone who does admissions law before it is relied on.
 
+## Do good schools raise house prices?
+
+See [`LITERATURE.md`](LITERATURE.md) for the review. Short version: **yes, and
+it's well established** — credible causal estimates are **2–4% per standard
+deviation** of school quality, using boundary-discontinuity designs
+([Black 1999](https://academic.oup.com/qje/article-abstract/114/2/577/1844232);
+[Gibbons, Machin & Silva 2013](https://cep.lse.ac.uk/_new/publications/abstract.asp?index=7072)).
+For Ofsted specifically, a one-grade change moves prices ~0.5% on average, ~1.5%
+in affluent areas and ~0 in deprived ones (Hussain 2016) — while exam results
+barely register, suggesting the market prices the *label*.
+
+Causality runs both ways: house prices sort families, intake drives raw results,
+results feed back into prices. And beware the property-press figures of 10–50% —
+those are raw catchment comparisons that measure the neighbourhood, not the school.
+
+The strongest thing this project could add is a **boundary-change**
+difference-in-differences: NYC alters catchments annually, and a change reassigns
+houses without changing the houses. That is cleaner than the cross-sectional
+boundary designs most of the literature uses, and the 20-year panel here is the
+right shape for it.
+
 ## Where this is going
 
 1. ~~Catchment boundaries~~ — done, pending the primary `.shp`.
