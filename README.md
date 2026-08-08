@@ -250,6 +250,84 @@ locations measure where people are close.
 LSOAs are assigned to the catchment holding most of their sales. Only 58 of 419
 span more than one, and just 32 fall below 80% purity.
 
+## What the divides actually sit on
+
+`make divides` asks what a sharp gap between neighbouring areas is made of. Two
+explanations, which the raw figure cannot separate:
+
+- **Composition** — one side is a new estate of detached houses, the other
+  Victorian terraces. £/m² removes the size effect and nothing else.
+- **Location** — the same kind of house is worth more on one side of a line.
+
+Log £/m² is regressed on property type, new-build status and tenure across the
+county, and the divides recomputed on the residuals. Those controls explain
+**11.2%** of the variance.
+
+### Much of the raw gap is just different housing
+
+| Catchment | Raw | Adjusted | Stock explains | What it is |
+|---|---:|---:|---:|---|
+| Graham School | 1.70× | **1.64×** | 7% | terraces vs terraces |
+| Rossett & Harrogate Grammar Town | 1.60× | **1.51×** | 13% | terraces vs terraces |
+| Filey School | 1.52× | **1.43×** | 15% | mixed vs mixed |
+| George Pindar School | 1.63× | 1.40× | 32% | new-build vs older |
+| Skipton Girls' & Ermysted's | 1.66× | 1.36× | 38% | detached vs terraces |
+| Northallerton | 1.63× | 1.35× | 39% | detached vs terraces |
+| Selby High & Brayton Town | 1.70× | 1.29× | 58% | new-build detached vs terraces |
+
+Selby was second on the raw ranking and falls out of the top after adjustment:
+**58% of its gap is a new-build estate sitting next to older terraces.** Graham
+School survives almost untouched — terraces facing terraces, with a real price
+difference between them.
+
+### And mostly, nothing is between them
+
+For each surviving divide, OpenStreetMap is queried for railways, major roads,
+rivers and green space. A feature counts only if it crosses the segment joining
+the two closest sales — a road running *through* both areas is not a divide, one
+running *between* them is.
+
+**Nine of twelve had nothing on the seam.** The three that did:
+
+| Catchment | Gap | On the seam |
+|---|---:|---|
+| Graham School | 1.64× | secondary road (Castle Road) |
+| Filey School | 1.43× | major road (Scarborough Road) |
+| Skipton Girls' & Ermysted's | 1.36× | Leeds and Liverpool Canal, Aireville Park |
+
+So the sharp divides are mostly not barriers. Neighbourhoods run straight into
+each other and the price steps down anyway.
+
+## On redrawing boundaries to reduce inequality
+
+Two findings bear directly on this, and both are discouraging.
+
+**There is a hard ceiling.** A boundary can only reallocate variation lying
+*between* the units it is drawn around — two houses in the same neighbourhood
+fall on the same side of every possible line.
+
+| Level | Groups | Share of price variation |
+|---|---:|---:|
+| Between catchments | 40 | 27.5% |
+| Between neighbourhoods | 418 | **37.6%** |
+| Within neighbourhoods | — | 62.4% |
+
+So **37.6% is the ceiling** on what any redrawing could move, however cleverly
+optimised, and today's boundaries already capture 27.5%. The headroom between
+the current lines and a *perfect* one is about **10 percentage points** of total
+variation. The remaining 62.4% is beyond the reach of the exercise entirely.
+
+**And the direction of the objective matters more than the optimisation.**
+Minimising inequality *within* each catchment means making each one internally
+uniform — which maximises the differences *between* catchments. That is a design
+for segregated intakes, and the opposite of what most people mean by fairer
+boundaries. Maximising within-catchment mix is equally coherent and points the
+other way. The same solver produces opposite maps from the two, so the objective
+has to be chosen before anything is run — it is not a technical detail.
+
+Neither is free in practice: catchments also have to respect school capacity,
+travel distance and contiguity, none of which is modelled here.
+
 ## Where this is going
 
 1. ~~Catchment boundaries~~ — done, pending the primary `.shp`.

@@ -1,4 +1,4 @@
-.PHONY: help setup map map-secondary transactions floor-areas prices periods inequality test all lint clean
+.PHONY: help setup map map-secondary transactions floor-areas prices periods inequality divides test all lint clean
 
 help:
 	@echo "setup          install dependencies"
@@ -9,6 +9,7 @@ help:
 	@echo "prices         per-catchment table and choropleths"
 	@echo "periods        distribution, rank shift and outsized-mover figures"
 	@echo "inequality     within-catchment inequality and adjacent rich/poor divides"
+	@echo "divides        what the divides sit on (queries OpenStreetMap)"
 	@echo "all            the full pipeline, in order"
 	@echo "test           pytest"
 	@echo "lint           ruff check"
@@ -44,7 +45,10 @@ periods:
 inequality:
 	uv run python scripts/analyse_inequality.py --layer secondary
 
+divides:
+	uv run python scripts/analyse_divides.py --layer secondary
+
 test:
 	uv run pytest tests -q
 
-all: transactions floor-areas prices periods inequality map-secondary
+all: transactions floor-areas prices periods inequality divides map-secondary

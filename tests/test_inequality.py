@@ -196,3 +196,91 @@ class TestDecomposition:
         )
         profile = pl.DataFrame({"lsoa21cd": ["A"], "catchment_name": ["C"]})
         assert decompose_dispersion(transactions, profile, min_lsoas=3).height == 0
+
+
+class TestHedonic:
+    """The composition adjustment must remove stock effects, not price effects."""
+
+    @staticmethod
+    def _sales(rows):
+        return pl.DataFrame(
+            rows,
+            schema={
+                "price_per_m2": pl.Float64,
+                "property_type": pl.Utf8,
+                "old_new": pl.Utf8,
+                "duration": pl.Utf8,
+                "lsoa21cd": pl.Utf8,
+                "catchment_name": pl.Utf8,
+                "floor_area_m2": pl.Float64,
+            },
+            orient="row",
+        )
+
+    def test_pure_composition_difference_is_fully_absorbed(self):
+        """Two areas differing only in stock type must show no residual gap.
+
+        Detached sells above terraced everywhere. If one area is all detached
+        and the other all terraced, at the same type-specific prices, the
+        residual medians must coincide — the gap is composition, not place.
+        """
+        from ny_catchments.divides import hedonic_residuals, lsoa_composition
+
+        rows = []
+        for _ in range(20):
+            rows.append((4000.0, "D", "N", "F", "A", "C", 100.0))
+            rows.append((2000.0, "T", "N", "F", "B", "C", 100.0))
+        residualised = hedonic_residuals(self._sales(rows))
+        composition = lsoa_composition(residualised, min_sales=5)
+
+        medians = dict(
+            zip(
+                composition["lsoa21cd"],
+                composition["median_residual"],
+                strict=True,
+            )
+        )
+        assert medians["A"] == pytest.approx(medians["B"], abs=1e-9)
+
+    def test_location_difference_survives_adjustment(self):
+        # Same stock on both sides, different prices: this is a place effect and
+        # must not be explained away.
+        from ny_catchments.divides import hedonic_residuals, lsoa_composition
+
+        rows = []
+        for _ in range(20):
+            rows.append((4000.0, "T", "N", "F", "A", "C", 100.0))
+            rows.append((2000.0, "T", "N", "F", "B", "C", 100.0))
+        residualised = hedonic_residuals(self._sales(rows))
+        composition = lsoa_composition(residualised, min_sales=5)
+        medians = dict(
+            zip(composition["lsoa21cd"], composition["median_residual"], strict=True)
+        )
+        gap = medians["A"] - medians["B"]
+        assert np.exp(gap) == pytest.approx(2.0, rel=1e-6)
+
+
+class TestVarianceByLevel:
+    def test_between_share_is_one_when_groups_are_internally_uniform(self):
+        from ny_catchments.divides import variance_by_level
+
+        frame = pl.DataFrame(
+            {
+                "price_per_m2": [1000.0] * 4 + [4000.0] * 4,
+                "lsoa21cd": ["A"] * 4 + ["B"] * 4,
+            }
+        )
+        result = variance_by_level(frame, levels=("lsoa21cd",))
+        assert result["between_share"][0] == pytest.approx(1.0)
+
+    def test_between_share_is_zero_when_groups_are_identical(self):
+        from ny_catchments.divides import variance_by_level
+
+        frame = pl.DataFrame(
+            {
+                "price_per_m2": [1000.0, 4000.0] * 4,
+                "lsoa21cd": ["A", "A", "B", "B"] * 2,
+            }
+        )
+        result = variance_by_level(frame, levels=("lsoa21cd",))
+        assert result["between_share"][0] == pytest.approx(0.0, abs=1e-12)
