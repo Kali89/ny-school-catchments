@@ -300,22 +300,35 @@ each other and the price steps down anyway.
 
 ## On redrawing boundaries to reduce inequality
 
-Two findings bear directly on this, and both are discouraging.
+**The ceiling depends on the grain at which lines may be drawn**, which is a
+choice rather than a fact about the data. A boundary can only reallocate
+variation lying *between* the units it follows; it cannot separate two houses
+inside a unit it never cuts.
 
-**There is a hard ceiling.** A boundary can only reallocate variation lying
-*between* the units it is drawn around — two houses in the same neighbourhood
-fall on the same side of every possible line.
+| Grain | Groups | Mean sales/group | Raw | Noise-corrected |
+|---|---:|---:|---:|---:|
+| Catchments as drawn today | 40 | 1,452 | 27.5% | **28.3%** |
+| LSOA-shaped boundaries | 418 | 139 | 37.6% | 37.2% |
+| Postcode-shaped boundaries | 14,158 | 4 | 69.5% | **59.7%** |
 
-| Level | Groups | Share of price variation |
-|---|---:|---:|
-| Between catchments | 40 | 27.5% |
-| Between neighbourhoods | 418 | **37.6%** |
-| Within neighbourhoods | — | 62.4% |
+An earlier version of this README quoted the LSOA figure as a hard ceiling on
+*any* redrawing. That was wrong. **An LSOA is a statistical area, not an atom** —
+a catchment boundary can and does run straight through one — so that row bounds
+only LSOA-shaped boundaries and badly understates the available freedom.
 
-So **37.6% is the ceiling** on what any redrawing could move, however cleverly
-optimised, and today's boundaries already capture 27.5%. The headroom between
-the current lines and a *perfect* one is about **10 percentage points** of total
-variation. The remaining 62.4% is beyond the reach of the exercise entirely.
+The noise correction matters at fine grain: with ~4 sales per postcode the group
+means are noisy, and noise inflates the raw share (a partition into singletons
+would score 100% while explaining nothing). The corrected column is the one-way
+random-effects estimate.
+
+Taking postcodes as the practical grain, the headroom between today's 28.3% and
+the 59.7% ceiling is about **31 points** of total variation — not the 10 first
+claimed.
+
+**But that ceiling is for an unconstrained partition** — any postcode to any
+school. Contiguity, travel distance and school capacity will all cut it, probably
+a long way. By how much is an empirical question this repo has not answered, and
+it cannot be reasoned out from these numbers.
 
 **And the direction of the objective matters more than the optimisation.**
 Minimising inequality *within* each catchment means making each one internally
@@ -327,6 +340,62 @@ has to be chosen before anything is run — it is not a technical detail.
 
 Neither is free in practice: catchments also have to respect school capacity,
 travel distance and contiguity, none of which is modelled here.
+
+### How boundaries actually get set
+
+Worth knowing before proposing to redraw them. The **process** is tightly
+regulated; the **substance** is almost entirely discretionary.
+
+The [School Admissions Code 2021](https://assets.publishing.service.gov.uk/media/60ebfeb08fa8f50c76838685/School_admissions_code_2021.pdf)
+is statutory for every state school. On catchments it says, at paragraph 1.14,
+essentially one thing: *"Catchment areas must be designed so that they are
+reasonable and clearly defined."* That is the whole substantive test. Nothing
+requires an objective function, and nothing forbids one. Living outside a
+catchment does not stop a parent expressing a preference for the school.
+
+Most community and voluntary-controlled schools **do not draw a fixed boundary
+at all** — once other criteria are applied, remaining places go to the nearest
+applicants by straight-line distance. North Yorkshire's named catchments are a
+choice, not the default.
+
+**Who decides is fragmented, and this is the binding constraint.** The admission
+authority is the local authority for community and voluntary-controlled schools,
+but the governing body for foundation and voluntary-aided schools, and the
+academy trust for academies. Of the secondary schools named in these 40
+catchments that match GIAS, **19 of 29 (66%) are academies** — so North Yorkshire
+Council could not redraw most of these boundaries even if it wanted to. A
+county-wide optimisation would need agreement from a couple of dozen separate
+admission authorities.
+
+The process, per the Code:
+
+- Consult for **at least 6 weeks**, between **1 October and 31 January** of the
+  determination year
+- Determine by 28 February, for admission ~18 months later
+- Consult **at least once every 7 years** even if nothing changes
+- Objections go to the **Office of the Schools Adjudicator**; if upheld, the
+  authority must comply within 2 months
+
+**What actually drives a change, in practice.** North Yorkshire's
+[Thirsk School consultation](https://edemocracy.northyorks.gov.uk/documents/s27461/Appendix%208-%20Consultation%20on%20Thirsk%20School%20catchment%20area.html?CT=2)
+(Oct–Dec 2023, decided Feb 2024, effective Sept 2025) moved three parishes into a
+joint Thirsk/Northallerton catchment. The stated reason was an *anomaly*: those
+villages fed into Knayton CE Primary alongside others, but were assigned to a
+different secondary catchment from their primary-school neighbours. No principle
+beyond tidying that inconsistency is cited — no optimisation, no equity target,
+no modelling.
+
+So: not quite "let the council flair it out", but the substantive criteria are
+thin enough that an inequality-aware principle would be a genuine novelty rather
+than a change to an existing formula.
+
+One caution if the objective were ever framed explicitly in price terms: the Code
+requires arrangements to be fair and prohibits criteria based on parents'
+financial status, so a boundary drawn *explicitly* on house prices would invite an
+adjudicator objection in a way that a boundary drawn on a neutral basis — which
+happens to produce a mixed intake — would not. That is a reading of the Code's
+intent rather than a citation of a specific paragraph, and worth checking with
+someone who does admissions law before it is relied on.
 
 ## Where this is going
 

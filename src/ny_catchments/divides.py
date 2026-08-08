@@ -196,23 +196,34 @@ def describe_divide(row: dict) -> str:
 
 def variance_by_level(
     transactions: pl.DataFrame,
-    levels: tuple[str, ...] = ("catchment_name", "lsoa21cd"),
+    levels: tuple[str, ...] = ("catchment_name", "lsoa21cd", "postcode_key"),
 ) -> pl.DataFrame:
     """How much price variation sits at each geographic level.
 
-    This is what bounds any proposal to redraw boundaries. A boundary can only
-    reallocate variation that lies *between* the units it is drawn around; two
-    houses in the same neighbourhood end up on the same side of every possible
-    line. So the between-neighbourhood share is a ceiling on what redrawing could
-    ever move, no matter how the lines are optimised.
+    This bounds any proposal to redraw boundaries, but the bound depends
+    entirely on **the grain at which lines may be drawn**, which is a choice
+    rather than a fact about the data. A boundary can only reallocate variation
+    lying *between* the units it follows; it cannot separate two houses inside a
+    unit it never cuts. Crucially an LSOA is a statistical area, not an atom — a
+    boundary can and does run straight through one — so the LSOA figure bounds
+    only LSOA-shaped boundaries, not boundaries in general. Read the postcode row
+    for something closer to the real limit, and note that even that is the limit
+    of an *unconstrained* partition: contiguity, travel distance and school
+    capacity all bind further and none is modelled here.
 
     Args:
         transactions: Priced sales carrying price_per_m2 and the level columns.
         levels: Grouping columns, coarsest first.
 
     Returns:
-        One row per level with `between_share` — the fraction of total log price
-        variance lying between groups at that level.
+        One row per level with `between_share_raw`, `between_share` (corrected
+        for sampling noise), `n_groups` and `mean_group_size`.
+
+        The correction matters at fine grain. With a handful of sales per group,
+        group means are noisy, and that noise inflates the raw between-group
+        share — a partition into singletons would score 100% while explaining
+        nothing. `between_share` is the one-way random-effects estimate
+        (MSB - MSW) / n0, which removes it.
 
     Raises:
         ValueError: If there is no variance to decompose.
@@ -223,6 +234,7 @@ def variance_by_level(
 
     values = priced["_log_ppm2"].to_numpy()
     grand_mean = values.mean()
+    total_n = values.size
     total = float(((values - grand_mean) ** 2).mean())
     if total == 0:
         raise ValueError("No variance in log price per m² to decompose.")
@@ -230,16 +242,39 @@ def variance_by_level(
     rows = []
     for level in levels:
         grouped = priced.group_by(level).agg(
-            pl.col("_log_ppm2").mean().alias("_m"), pl.len().alias("_n")
+            pl.col("_log_ppm2").mean().alias("_m"),
+            pl.len().alias("_n"),
+            pl.col("_log_ppm2").var(ddof=0).alias("_v"),
         )
-        weights = grouped["_n"].to_numpy()
+        counts = grouped["_n"].to_numpy().astype(float)
         means = grouped["_m"].to_numpy()
-        between = float((weights * (means - grand_mean) ** 2).sum() / weights.sum())
+        within = np.nan_to_num(grouped["_v"].to_numpy())
+        n_groups = grouped.height
+
+        sum_sq_between = float((counts * (means - grand_mean) ** 2).sum())
+        sum_sq_within = float((counts * within).sum())
+        raw = sum_sq_between / (sum_sq_between + sum_sq_within)
+
+        # One-way random effects, unbalanced. n0 is the effective group size;
+        # with n0 near 1 the raw share is almost entirely noise.
+        if n_groups > 1 and total_n > n_groups:
+            mean_sq_between = sum_sq_between / (n_groups - 1)
+            mean_sq_within = sum_sq_within / (total_n - n_groups)
+            n0 = (total_n - (counts**2).sum() / total_n) / (n_groups - 1)
+            between_var = max((mean_sq_between - mean_sq_within) / n0, 0.0)
+            corrected = between_var / (between_var + mean_sq_within)
+        else:
+            n0 = float(total_n)
+            corrected = raw
+
         rows.append(
             {
                 "level": level,
-                "n_groups": grouped.height,
-                "between_share": between / total,
+                "n_groups": n_groups,
+                "mean_group_size": float(counts.mean()),
+                "between_share_raw": raw,
+                "between_share": corrected,
+                "effective_group_size": float(n0),
             }
         )
 

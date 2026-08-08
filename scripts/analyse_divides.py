@@ -206,37 +206,61 @@ def _write_report(spec, r2, per_catchment, adjusted, seams, levels) -> None:
             "Feature data © OpenStreetMap contributors, under the Open Database Licence.",
         ]
 
-    between_lsoa = levels.filter(pl.col("level") == "lsoa21cd")["between_share"][0]
-    between_catchment = levels.filter(pl.col("level") == "catchment_name")[
-        "between_share"
-    ][0]
+    def share(level: str) -> float:
+        return levels.filter(pl.col("level") == level)["between_share"][0]
+
+    between_catchment = share("catchment_name")
+    between_postcode = share("postcode_key")
+
     lines += [
         "",
         "## What this implies for redrawing boundaries",
         "",
-        "| Level | Groups | Share of price variation between groups |",
-        "|---|---:|---:|",
+        "A boundary can only reallocate variation lying *between* the units it",
+        "follows. It cannot separate two houses inside a unit it never cuts — so the",
+        "ceiling depends on **the grain at which lines may be drawn**, which is a",
+        "choice, not a fact about the data.",
+        "",
+        "| Grain | Groups | Mean sales/group | Raw | Noise-corrected |",
+        "|---|---:|---:|---:|---:|",
     ]
+    labels = {
+        "catchment_name": "Catchments as drawn today",
+        "lsoa21cd": "LSOA-shaped boundaries",
+        "postcode_key": "Postcode-shaped boundaries",
+    }
     for row in levels.iter_rows(named=True):
-        label = {
-            "catchment_name": "Between catchments",
-            "lsoa21cd": "Between neighbourhoods",
-        }.get(row["level"], row["level"])
-        lines += [f"| {label} | {row['n_groups']:,} | {row['between_share']:.1%} |"]
+        lines += [
+            (
+                f"| {labels.get(row['level'], row['level'])} | {row['n_groups']:,} | "
+                f"{row['mean_group_size']:.0f} | {row['between_share_raw']:.1%} | "
+                f"**{row['between_share']:.1%}** |"
+            )
+        ]
     lines += [
-        f"| Within neighbourhoods | — | {1 - between_lsoa:.1%} |",
         "",
-        "**A boundary can only reallocate variation that lies between the units it",
-        "is drawn around.** Two houses in the same neighbourhood fall on the same",
-        f"side of every possible line. So {between_lsoa:.0%} is a hard ceiling on what",
-        "*any* redrawing could move, however cleverly optimised — and the remaining",
-        f"{1 - between_lsoa:.0%} is beyond the reach of the exercise entirely.",
+        "**An LSOA is not an atom.** It is a statistical area, and a catchment",
+        "boundary can and does run straight through one. The LSOA row therefore",
+        "bounds only LSOA-shaped boundaries — it is not a limit on boundaries in",
+        "general, and reading it as one understates the available freedom badly.",
         "",
-        f"Today's boundaries already capture {between_catchment:.0%}, so the headroom",
+        "**The noise correction is not a detail either.** With a handful of sales per",
+        "group the group means are noisy, and that noise inflates the raw share — a",
+        "partition into singletons would score 100% while explaining nothing. The",
+        "corrected column is the one-way random-effects estimate.",
+        "",
         (
-            f"between the current lines and a perfect one is roughly "
-            f"{between_lsoa - between_catchment:.0%} of total variation."
+            f"Taking postcodes as the practical grain, the headroom between today's "
+            f"{between_catchment:.0%} and the {between_postcode:.0%} ceiling is about "
+            f"{100 * (between_postcode - between_catchment):.0f} points of total "
+            f"variation."
         ),
+        "",
+        "**That ceiling is for an unconstrained partition** — any postcode assigned",
+        "to any school. Requiring each catchment to be contiguous, within a travel",
+        "distance of its school, and to match school capacity will cut it, probably",
+        "a long way. By how much is an empirical question this repo has not answered,",
+        "and it cannot be reasoned out from these numbers.",
         "",
         "**The direction of the objective matters more than the optimisation.**",
         "Minimising inequality *within* each catchment means making each one",
